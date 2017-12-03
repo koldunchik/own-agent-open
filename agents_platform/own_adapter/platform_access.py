@@ -7,7 +7,12 @@ from urllib import request
 
 import logger
 
+from own_adapter.agent import Agent
+
 OWN_PLATFORM_ADDRESS = 'http://188.130.155.101:9000'
+AGENT_LOGIN = 'gafrustame@yandex.ru'
+AGENT_PASSWORD = 'msdCpass1337'
+
 
 
 class PlatformAccess:
@@ -81,3 +86,14 @@ class PlatformAccess:
         headers.update(additional_headers)
 
         return headers
+
+
+def get_agent():
+    """Returns the current agent"""
+    login = AGENT_LOGIN
+    password = AGENT_PASSWORD
+
+    platform_access = PlatformAccess(login, password)
+    helloworld_agent = Agent(platform_access)
+
+    return helloworld_agent

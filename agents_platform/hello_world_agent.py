@@ -7,43 +7,13 @@ import traceback
 import websocket
 
 import logger
+import student
+import teacher
+
 from own_adapter.agent import Agent
 from own_adapter.board import Board
 from own_adapter.element import Element
-from own_adapter.platform_access import PlatformAccess
-
-AGENT_LOGIN = ''
-AGENT_PASSWORD = ''
-
-
-def __do_something(element):
-    """Write your code here"""
-
-    # examples:
-    # put a message to a board
-    message = 'Hello world!'
-    element.get_board().put_message(message)
-
-    # put a URL to an element
-    url = 'https://www.own.space/'
-    element.put_link(url)
-
-
-def __run_on_element(element):
-    """Running on a target element"""
-    try:
-        __do_something(element)
-    except Exception as ex:
-        logger.exception('helloworld', 'Error: could not process an element. Element id: {}. Exception message: {}.\n'
-                                       '{}'.format(element.get_id(), str(ex), traceback.format_exc()))
-
-
-def __run_on_board(board):
-    """Runs the agent on elements of a board"""
-    elements = board.get_elements()
-    for element in elements:
-        __run_on_element(element)
-
+from own_adapter.platform_access import PlatformAccess, get_agent
 
 def periodical_update():
     """Does periodical work with a predefined time interval"""
@@ -51,23 +21,42 @@ def periodical_update():
 
     while True:
         time.sleep(time_interval)
-
-        agent = get_agent()
-        boards = agent.get_boards()
-        for board in boards:
-            __run_on_board(board)
         logger.info('helloworld', 'Daily news update is done.')
 
 
-def get_agent():
-    """Returns the current agent"""
-    login = AGENT_LOGIN
-    password = AGENT_PASSWORD
+def process_added_element(message_dict):
+    element_caption = message_dict['newCaption']
+    if re.match(pattern='@ta:.+', string=element_caption):
+        student.get_new_assignment(message_dict)
 
-    platform_access = PlatformAccess(login, password)
-    helloworld_agent = Agent(platform_access)
 
-    return helloworld_agent
+def process_added_file(message_dict):
+    file_link = message_dict['path']
+    element_link = '/'.join(file_link.split('/')[:-2])
+    board_link = '/'.join(file_link.split('/')[:-4])
+    agent = get_agent()
+    board = Board.get_board_by_id(board_link, agent.get_platform_access(), need_name=False)
+    element = Element.get_element_by_id(element_link, agent.get_platform_access(), board)
+    caption = element.get_name()
+
+    added_file = None
+    for file in element.get_files():
+        platform_url = agent.get_platform_access().get_platform_url()
+        if file.get_url()[len(platform_url):] == file_link:
+            added_file = file
+            break;
+
+    logger.debug('helloworld', caption)
+    if re.match(pattern='@ta_assignment:.+', string=caption) and len(element.get_files()) == 1:
+        teacher.send_new_assignment(agent, board, element, added_file)
+    if re.match(pattern='@assignment:.+', string=caption) and len(element.get_files()) > 1:
+        student.send_solution(agent, board, element, added_file)
+    if re.match(pattern='@ta_assignment:.+', string=caption) and len(element.get_files()) > 1:
+        teacher.recieve_solution(agent, board, element, added_file)
+    if re.match(pattern='@ta_assignment_graded:.+', string=caption):
+        teacher.send_grades(agent, board, element, added_file)
+
+
 
 
 def on_websocket_message(ws, message):
@@ -79,17 +68,9 @@ def on_websocket_message(ws, message):
     logger.debug('helloworld', message)
 
     if message_type == 'liveUpdateElementCaptionEdited+json':
-        element_caption = message_dict['newCaption']
-        # looking for elements that target our agent
-        if re.match(pattern='@helloworld:.+', string=element_caption):
-            # create instances of Board and Element to work with them
-            element_id = message_dict['path']
-            news_agent = get_agent()
-            board_id = '/'.join(element_id.split('/')[:-2])
-            board = Board.get_board_by_id(board_id, news_agent.get_platform_access(), need_name=False)
-            element = Element.get_element_by_id(element_id, news_agent.get_platform_access(), board)
-            if element is not None:
-                __run_on_element(element)
+        process_added_element(message_dict)
+    if message_type == 'liveUpdateFileAdded+json':
+        process_added_file(message_dict)
 
 
 def on_websocket_error(ws, error):
